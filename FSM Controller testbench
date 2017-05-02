@@ -1,0 +1,31 @@
+module Controller_tb;
+  
+  reg clk,reset;
+  reg [2:0] opcode;
+  reg [1:0] op;
+  
+  wire loadir, incp, msel, mwrite, write, asel, bsel, loada, loadb, loadc, loads, execb;
+  wire [2:0] nsel;
+  wire [1:0] vsel;
+  
+  Controller dut control(clk, reset, opcode, op, loadir, incp, msel, mwrite, nsel, vsel, write, loada, loadb, loadc, loads,asel, bsel, execb);
+
+initial forever begin
+clk = 0;
+#100;
+clk = 1;
+#100;
+end
+
+ initial begin
+  reset=1; //reset at the beginnig
+  #15;
+  reset=0;
+  op=00;
+  opcode=001;//Branch
+  #1000;
+
+  $stop;
+  end
+
+initial begin
