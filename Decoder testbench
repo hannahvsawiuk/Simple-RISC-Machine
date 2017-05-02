@@ -1,0 +1,22 @@
+module Decoder_tb;
+reg [15:0] in;
+reg [2:0] nsel;
+wire [1:0] ALUop, shift, op;
+wire [15:0] sximm5, sximm8;
+wire [2:0] readnum, writenum, opcode;
+
+decoder DUT(in, nsel, ALUop, sximm5, sximm8, shift, readnum, writenum, opcode, op);
+
+initial begin
+in=16'b1001001011001001;//decode the instruction
+//ALUop=10, shift=01, op=10, sximm5=0000000000001001, sximm8=1111111111001001, opcode=100
+//Rn=010, Rd=110, Rm=001
+nsel=3'b001;//writenum and readnum=Rn(in[10:8])
+#20;
+nsel=3'b010;//writenum and readnum=Rd(in[7:5])
+#20;
+nsel=3'b100;//writenum and readnum=Rm(in[2:0])
+#20;
+end
+
+endmodule
