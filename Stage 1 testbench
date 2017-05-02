@@ -1,0 +1,49 @@
+module stage1_tb;
+  reg loadpc, reset, msel, mwrite, loadir, clk;
+  reg [15:0] B,C;
+  wire [15:0] mdata, IR_result;
+ 
+  stage1 DUT(clk,loadpc, reset,B,C,msel,mwrite,loadir,mdata, IR_result);
+
+  initial begin//instantiate clk
+    repeat(12) begin
+    clk=0;
+    #10;
+    clk=1;
+    #10;
+  end
+  end
+
+  //read instruction at location 0 and location 1, and store them into IR register.
+  /*instructions are 1101000000000111
+                     1101000100000010
+                     1010000101001000*/
+  initial begin
+    //mod in fig 7
+    reset=1; loadpc=0;loadir=0;mwrite=0;msel=0;
+    #15;
+    reset=0;
+    #20;
+    loadir=1;
+    #20;//IR holds instruction at location 0 now(1101000000000111)
+    loadir=0; loadpc=1;
+    #20;
+    loadpc=0;
+    #20;
+    loadir=1;
+    #20;//IR holds instruction at location 1 now(1010000101001000)
+    loadpc=1;loadir=0;
+    #20;
+    loadpc=0;
+    #25;
+    //mod in fig8
+    #15;
+    mwrite=1;C=16'b10;
+    B=16'b1;//new value(old value was 1101000100000010)
+    #20;
+    mwrite=0;
+    #45;
+  end
+endmodule
+
+    
