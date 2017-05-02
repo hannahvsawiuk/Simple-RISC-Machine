@@ -1,0 +1,94 @@
+module controller(clk, reset, opcode, op, loadir, incp, msel, mwrite, nsel, vsel, write, loada, loadb, loadc, loads,asel, bsel, execb);
+  input clk,reset;
+  input [2:0] opcode;
+  input [1:0] op;
+  output loadir, incp, msel, mwrite, write, asel, bsel, loada, loadb, loadc, loads, execb;
+  output [2:0] nsel;
+  output [1:0] vsel;
+  
+  `define Sr 4'b0000
+  `define S1 4'b0001
+  `define S2 4'b0010
+  `define S3 4'b0011
+  `define S4 4'b0100
+  `define S5 4'b0101
+  `define S6 4'b0110
+  `define S7 4'b0111
+  `define S8 4'b1000
+  `define Se 4'b1111
+  
+
+  wire [3:0] present_state, state_next_reset, state_next;
+  reg  [20:0] next; 
+
+  //assign the state transitions and output values
+  assign {state_next, loadir, incp, msel, mwrite, nsel, vsel, write, asel, bsel, loada, loadb, loadc, loads, execb}=next;
+  //        4            1       1     1     1       3     2      1     1     1      1     1      1       1     1    21
+
+  vDFF #(4) State(clk, state_next_reset, present_state);//go to next state at the rising edge of the clk
+ 
+ assign state_next_reset=reset? `Sr : state_next;//check if reset button is hit; if yes, go to S0
+
+  always @(*)
+    casex({present_state, op, opcode})
+      //we use an extra cycle because we noticed that instructions take two cycles to go into IR register
+      //if we read at the first cycle, we cannot read the first instruction successfully
+      {`Sr, 2'bxx, 3'bxxx}: next={`Se, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0, 1'b0};//reset     
+      {`Se, 2'bxx, 3'bxxx}: next={`S1, 1'b1, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0, 1'b0};//Load IR
+
+      //Update PC so IR register is prepared to read the next instruction, then read Rn for next step.
+      {`S1, 2'bxx, 3'b1xx}: next={`S2, 1'b0, 1'b1, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//Update PC (incp = 1 therefore pc=pc+1)
+	  {`S1, 2'b00, 3'b011}: next={`S2, 1'b0, 1'b1, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//Update PC (incp = 1 therefore pc=pc+1)
+	  {`S1, 2'b00, 3'b001}: next={`S2, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1};//incp=0 so pcrel/pctgt (branch) is selected by mux
+	  
+	  {`S2, 2'bxx, 3'bxxx}: next={`S3, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b1,1'b0,1'b0,1'b0,1'b0};//Read Rn
+
+      //in S3, we do different things depending on different op and opcode.
+      //go to S6 if it is MOV Rn instruction(11010); otherwise, go to S4
+      {`S3, 2'bxx, 3'b101}: next={`S4, 1'b0, 1'b0, 1'b0, 1'b0, 3'b100, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b1,1'b0,1'b0,1'b0};//read Rm
+      {`S3, 2'b10, 3'b110}: next={`S6, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b10,1'b1,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//MOV11010 to Write Rn
+      {`S3, 2'b00, 3'b110}: next={`S4, 1'b0, 1'b0, 1'b0, 1'b0, 3'b100, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b1,1'b0,1'b0,1'b0};//read Rm for MOV11000
+	  {`S3, 2'b00, 3'b001}: next={`S7, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1};//EXBR1: execb=1
+
+      //ALU logics. For CMP instruction, set loads=1 to detect further status; otherwise, set loadc=1
+      //go to S5
+      {`S4, 2'b01, 3'b101}: next={`S5, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1,1'b0};//CMP(loads=1)
+      {`S4, 2'b00, 3'b101}: next={`S5, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1,1'b1,1'b0};//ADD(loadc=1)
+      {`S4, 2'b1x, 3'b101}: next={`S5, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b1,1'b1,1'b0};//AND&MVN(loadc=1)
+      //MOV11000 logic. set loadc=1 and go to S5
+      {`S4, 2'b00, 3'b110}: next={`S5, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b1,1'b0,1'b0,1'b0,1'b1,1'b1,1'b0};//MOV11000(loadc=1)
+
+
+      //For CMP logic, go back to S1; otherwise, use an extra cycle to write value to Rd(go to S6)
+      {`S5, 2'b01, 3'b101}: next={`S1, 1'b1, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//go back to S1
+      {`S5, 2'b00, 3'b101}: next={`S6, 1'b0, 1'b0, 1'b0, 1'b0, 3'b010, 2'b00,1'b1,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//Write to Rd(add)
+      {`S5, 2'b1x, 3'b101}: next={`S6, 1'b0, 1'b0, 1'b0, 1'b0, 3'b010, 2'b00,1'b1,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//Write to Rd(and&move)
+      //MOV11000 logic. Write to Rd and go to S6
+      {`S5, 2'b00, 3'b110}: next={`S6, 1'b0, 1'b0, 1'b0, 1'b0, 3'b010, 2'b00,1'b1,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//Write to Rd(MOV11000)
+
+      //instruction should have fully executed whenever at S6, go to S1 to take next instruction
+       {`S6, 2'bxx, 3'bxxx}: next={`S1, 1'b1, 1'b0,1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//go back to S1
+    
+       //LDR logic. Read Rn, push the sum of sximm5 and register A to register C, push C[7:0] to mdata and finally write mdata to Rd
+       {`S2, 2'b00, 3'b011}: next={`S3, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b1,1'b0,1'b0,1'b0,1'b0};//Read Rn
+       {`S3, 2'b00, 3'b011}: next={`S4, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b1,1'b0,1'b0,1'b1,1'b1,1'b0};//Add up sximm5 and A, load to C
+       {`S4, 2'b00, 3'b011}: next={`S5, 1'b0, 1'b0, 1'b1, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//push C[7:0] to mdata
+       {`S5, 2'b00, 3'b011}: next={`S6, 1'b0, 1'b0, 1'b0, 1'b0, 3'b010, 2'b11,1'b1,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//Write mdata to Rd
+
+       //STR logic. Same as LDR logic for the first two steps. Push the value in Rd to B, and then set mwrite=1 to write into RAM
+       {`S2, 2'b00, 3'b100}: next={`S3, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b0,1'b1,1'b0,1'b0,1'b0,1'b0};//Read Rn
+       {`S3, 2'b00, 3'b100}: next={`S4, 1'b0, 1'b0, 1'b0, 1'b0, 3'b001, 2'b00,1'b0,1'b0,1'b1,1'b0,1'b0,1'b1,1'b0,1'b0};//Add up sximm5 and A, load to C, make C ready to the addr of RAM
+       {`S4, 2'b00, 3'b100}: next={`S5, 1'b0, 1'b0, 1'b0, 1'b0, 3'b010, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b1,1'b0,1'b0,1'b0};//Read content of Rd, save to B
+       {`S5, 2'b00, 3'b100}: next={`S8, 1'b0, 1'b0, 1'b1, 1'b1, 3'b010, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//mwrite=1
+	      
+        
+       {`S8, 2'b00, 3'b111}: next={`S6, 1'b0, 1'b0, 1'b1, 1'b0, 3'b010, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0};//mwrite=0
+
+       {`S7, 2'b00, 3'b111}: next={`Se, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0}; //Halt (opcode=3'b111, op=2'b00) and everything is 0
+																														//Wait for RAM
+
+      default: next={`Sr, 1'b0, 1'b0, 1'b0, 1'b0, 3'b000, 2'b00,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0}; //everything is 0
+  endcase
+endmodule
+
+  
